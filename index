@@ -1,0 +1,1929 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2026法金盛會・科技戰艦 HUD 畫面框與能量充能條產生器</title>
+
+  <!-- 載入 Tailwind CSS（用於深色影視後期控制面板與響應式佈局） -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- 載入 Google Fonts: Orbitron (科幻大數字/標題), JetBrains Mono (等寬時間碼), Noto Sans TC (繁體中文粗體) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Noto+Sans+TC:wght@500;700;900&family=Orbitron:wght@600;700;800;900&display=swap" rel="stylesheet" />
+
+  <style>
+    /* =========================================================================
+       1. 全域主題變數（虎躍隊 vs 龍騰隊：100% 幾何與排版零落差，僅切換隊色）
+       ========================================================================= */
+    :root {
+      --font-orbitron: 'Orbitron', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-zh: 'Noto Sans TC', sans-serif;
+
+      /* 預設：虎躍隊（亮金黃 #FACC15 × 翡翠能量綠 #10B981） */
+      --c-primary: #FACC15;
+      --c-secondary: #10B981;
+      --c-primary-rgb: 250, 204, 21;
+      --c-secondary-rgb: 16, 185, 129;
+
+      /* 後期軟體 UI 深海藍黑基調 */
+      --ui-bg: #0B0F17;
+      --ui-surface: #111827;
+      --ui-border: rgba(148, 163, 184, 0.16);
+    }
+
+    /* 龍騰隊（熾熱紅 #EF4444 × 電光藍 #38BDF8） */
+    body.theme-dragon {
+      --c-primary: #EF4444;
+      --c-secondary: #38BDF8;
+      --c-primary-rgb: 239, 68, 68;
+      --c-secondary-rgb: 56, 189, 248;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--ui-bg);
+      color: #F8FAFC;
+      font-family: var(--font-zh);
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 自訂低調捲軸 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #080B12;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #273247;
+      border-radius: 999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3B4A68;
+    }
+
+    /* =========================================================================
+       2. 16:9 標準影片畫布容器（啟用 Container Query 讓 HUD 永遠等比例縮放）
+       ========================================================================= */
+    #viewport-shell {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background-color: #000000;
+      overflow: hidden;
+      container-type: inline-size;
+      container-name: hud-canvas;
+      user-select: none;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+
+    /* 三種底圖模式控制 */
+    #viewport-shell.bg-mode-black {
+      background-color: #000000 !important;
+    }
+    #viewport-shell.bg-mode-green {
+      background-color: #00FF00 !important;
+    }
+    #viewport-shell.bg-mode-black #media-layer,
+    #viewport-shell.bg-mode-black #placeholder-layer,
+    #viewport-shell.bg-mode-black #cinematic-filter-layer,
+    #viewport-shell.bg-mode-green #media-layer,
+    #viewport-shell.bg-mode-green #placeholder-layer,
+    #viewport-shell.bg-mode-green #cinematic-filter-layer {
+      display: none !important;
+    }
+
+    /* 拖曳檔案進入畫布時的高亮提示 */
+    #viewport-shell.is-dragover::after {
+      content: '放開滑鼠以匯入影片或圖片素材';
+      position: absolute;
+      inset: 0;
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(11, 15, 23, 0.82);
+      border: 3px dashed var(--c-secondary);
+      color: #FFFFFF;
+      font-size: 2.2cqw;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+      backdrop-filter: blur(4px);
+    }
+
+    /* =========================================================================
+       3. 純淨全螢幕錄製模式（隱藏所有 UI、純黑底、16:9 最大化置中、隱藏游標）
+       ========================================================================= */
+    body.recording-mode {
+      background-color: #000000 !important;
+      overflow: hidden !important;
+      cursor: none !important;
+    }
+
+    body.recording-mode #app-header,
+    body.recording-mode #control-sidebar,
+    body.recording-mode #transport-bar,
+    body.recording-mode #stage-meta-bar {
+      display: none !important;
+    }
+
+    body.recording-mode #main-workspace {
+      padding: 0 !important;
+      margin: 0 !important;
+      max-width: none !important;
+      height: 100vh !important;
+      width: 100vw !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      background: #000000 !important;
+    }
+
+    body.recording-mode #preview-column {
+      padding: 0 !important;
+      margin: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+    }
+
+    body.recording-mode #viewport-shell {
+      width: min(100vw, calc(100vh * 16 / 9)) !important;
+      height: min(100vh, calc(100vw * 9 / 16)) !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+    }
+
+    /* =========================================================================
+       4. 媒體層、預設科技佔位畫面與電影感微調色濾鏡
+       ========================================================================= */
+    #media-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #05080F;
+      z-index: 1;
+    }
+
+    #preview-video,
+    #preview-image {
+      width: 100%;
+      height: 100%;
+      display: none;
+      transition: filter 0.3s ease;
+    }
+
+    /* 電影感濾鏡開啟時微調媒體對比與冷調質感 */
+    #viewport-shell.cinematic-on #preview-video,
+    #viewport-shell.cinematic-on #preview-image {
+      filter: contrast(1.08) saturate(0.95) brightness(0.96);
+    }
+
+    /* 深色科技感預設佔位底圖 */
+    #placeholder-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(circle at 50% 48%, rgba(var(--c-secondary-rgb), 0.12) 0%, rgba(7, 11, 20, 0.92) 58%, #04060B 100%),
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0px, rgba(255, 255, 255, 0.025) 1px, transparent 1px, transparent 32px),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0px, rgba(255, 255, 255, 0.025) 1px, transparent 1px, transparent 32px);
+      cursor: pointer;
+    }
+
+    .placeholder-badge {
+      padding: 0.55cqw 1.3cqw;
+      border: 1px solid rgba(var(--c-primary-rgb), 0.45);
+      background: rgba(var(--c-primary-rgb), 0.08);
+      color: var(--c-primary);
+      font-family: var(--font-mono);
+      font-size: 1.05cqw;
+      letter-spacing: 0.2em;
+      border-radius: 999px;
+      margin-bottom: 1.2cqw;
+    }
+
+    .placeholder-title {
+      font-size: 2.1cqw;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+      color: rgba(255, 255, 255, 0.92);
+      margin-bottom: 0.6cqw;
+    }
+
+    .placeholder-sub {
+      font-size: 1.15cqw;
+      color: rgba(148, 163, 184, 0.85);
+      letter-spacing: 0.08em;
+    }
+
+    /* 電影感微調色濾鏡層（微暗角 + 隊色邊緣微光） */
+    #cinematic-filter-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      background:
+        radial-gradient(ellipse at center, transparent 54%, rgba(3, 6, 12, 0.62) 100%);
+      box-shadow:
+        inset 0 0 6cqw rgba(var(--c-secondary-rgb), 0.16),
+        inset 0 0 2.2cqw rgba(var(--c-primary-rgb), 0.12);
+    }
+
+    #viewport-shell.cinematic-on #cinematic-filter-layer {
+      opacity: 1;
+    }
+
+    /* 極細微掃描線（可獨立開關） */
+    #hud-scanlines {
+      position: absolute;
+      inset: 0;
+      z-index: 12;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.028) 0px,
+        rgba(255, 255, 255, 0.028) 1px,
+        transparent 1px,
+        transparent 4px
+      );
+    }
+
+    /* 綠幕模式下自動弱化掃描線以免影響色度鍵 */
+    #viewport-shell.bg-mode-green #hud-scanlines {
+      opacity: 0.18;
+    }
+
+    /* =========================================================================
+       5. 科技戰艦 HUD 幾何外框層（極簡高質感、不遮擋中央主體）
+       ========================================================================= */
+    #hud-frame-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 18;
+      pointer-events: none;
+    }
+
+    .hud-frame-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0 0 0.45cqw rgba(var(--c-secondary-rgb), 0.45));
+    }
+
+    /* 四角呼吸微光點 */
+    .corner-led {
+      position: absolute;
+      width: 0.42cqw;
+      height: 0.42cqw;
+      border-radius: 50%;
+      background-color: var(--c-primary);
+      box-shadow: 0 0 0.7cqw var(--c-primary), 0 0 1.2cqw var(--c-secondary);
+      animation: ledPulse 2.4s ease-in-out infinite;
+    }
+    .led-tl { top: 2.35%; left: 1.35%; }
+    .led-tr { top: 2.35%; right: 1.35%; animation-delay: 0.6s; }
+    .led-bl { bottom: 2.35%; left: 1.35%; animation-delay: 1.2s; }
+    .led-br { bottom: 2.35%; right: 1.35%; animation-delay: 1.8s; }
+
+    @keyframes ledPulse {
+      0%, 100% { opacity: 0.95; transform: scale(1); }
+      50% { opacity: 0.3; transform: scale(0.75); }
+    }
+
+    /* =========================================================================
+       6. 左上角：REC 呼吸紅點 + 機位標籤 + 等寬時間碼
+       ========================================================================= */
+    #hud-top-left {
+      position: absolute;
+      top: 4.6%;
+      left: 3.1%;
+      z-index: 22;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.38cqw;
+    }
+
+    .rec-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75cqw;
+    }
+
+    .rec-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.42cqw;
+      padding: 0.2cqw 0.62cqw;
+      border: 1px solid rgba(239, 68, 68, 0.75);
+      background: rgba(239, 68, 68, 0.14);
+      border-radius: 0.22cqw;
+    }
+
+    .rec-dot {
+      width: 0.58cqw;
+      height: 0.58cqw;
+      border-radius: 50%;
+      background-color: #FF2E2E;
+      box-shadow: 0 0 0.6cqw #FF2E2E, 0 0 1.1cqw rgba(255, 46, 46, 0.8);
+      animation: recBlink 1.15s ease-in-out infinite;
+    }
+
+    @keyframes recBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.22; }
+    }
+
+    .rec-text {
+      font-family: var(--font-orbitron);
+      font-size: 0.88cqw;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      color: #FFFFFF;
+      text-shadow: 0 0 0.5cqw rgba(255, 46, 46, 0.75);
+    }
+
+    .cam-tag {
+      font-family: var(--font-zh);
+      font-size: 1.12cqw;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      color: #FFFFFF;
+      text-shadow: 0 0 0.8cqw rgba(var(--c-primary-rgb), 0.7), 0 1px 3px rgba(0, 0, 0, 0.85);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45cqw;
+    }
+
+    .cam-tag-accent {
+      display: inline-block;
+      width: 0.22cqw;
+      height: 1.1cqw;
+      background: linear-gradient(180deg, var(--c-primary), var(--c-secondary));
+      box-shadow: 0 0 0.5cqw var(--c-secondary);
+    }
+
+    .timecode-readout {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 1.05cqw;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      color: var(--c-primary);
+      text-shadow: 0 0 0.7cqw rgba(var(--c-primary-rgb), 0.65), 0 1px 3px rgba(0, 0, 0, 0.9);
+      padding-left: 0.1cqw;
+    }
+
+    /* =========================================================================
+       7. 右上角：活動名稱與階段標籤
+       ========================================================================= */
+    #hud-top-right {
+      position: absolute;
+      top: 4.6%;
+      right: 3.1%;
+      z-index: 22;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.35cqw;
+      text-align: right;
+    }
+
+    .event-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5cqw;
+      font-family: var(--font-zh);
+      font-size: 0.96cqw;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      color: rgba(255, 255, 255, 0.92);
+      text-shadow: 0 0 0.6cqw rgba(var(--c-secondary-rgb), 0.6), 0 1px 3px rgba(0, 0, 0, 0.85);
+    }
+
+    .event-badge-bar {
+      width: 1.6cqw;
+      height: 0.16cqw;
+      background: linear-gradient(90deg, var(--c-secondary), var(--c-primary));
+      box-shadow: 0 0 0.5cqw var(--c-secondary);
+    }
+
+    .phase-tag-box {
+      position: relative;
+      padding: 0.32cqw 0.95cqw 0.34cqw 1.1cqw;
+      border-right: 0.24cqw solid var(--c-primary);
+      border-top: 1px solid rgba(var(--c-secondary-rgb), 0.45);
+      border-bottom: 1px solid rgba(var(--c-secondary-rgb), 0.45);
+      background: linear-gradient(90deg, rgba(var(--c-secondary-rgb), 0.04) 0%, rgba(var(--c-primary-rgb), 0.16) 100%);
+      clip-path: polygon(0.65cqw 0, 100% 0, 100% 100%, 0 100%, 0 0.65cqw);
+    }
+
+    /* 純黑/綠幕去背模式下，去除半透明底色雜訊以保持純淨發光線條 */
+    #viewport-shell.bg-mode-black .phase-tag-box,
+    #viewport-shell.bg-mode-green .phase-tag-box {
+      background: transparent;
+    }
+
+    .phase-tag-text {
+      font-family: var(--font-zh);
+      font-size: 1.08cqw;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      color: #FFFFFF;
+      text-shadow: 0 0 0.7cqw rgba(var(--c-primary-rgb), 0.7), 0 1px 3px rgba(0, 0, 0, 0.9);
+      white-space: nowrap;
+    }
+
+    /* =========================================================================
+       8. 內建科技戰艦 HUD 能量充能條（嚴格控制寬度在畫布 24.5%，左下/右下可切）
+       ========================================================================= */
+    #hud-energy-module {
+      position: absolute;
+      bottom: 5.2%;
+      width: 24.5%;
+      z-index: 24;
+      pointer-events: none;
+      padding: 0.85cqw 1.05cqw 0.75cqw 1.05cqw;
+      border: 1px solid rgba(var(--c-secondary-rgb), 0.48);
+      background: rgba(5, 9, 16, 0.56);
+      clip-path: polygon(0.85cqw 0, 100% 0, 100% calc(100% - 0.85cqw), calc(100% - 0.85cqw) 100%, 0 100%, 0 0.85cqw);
+      box-shadow: inset 0 0 1.4cqw rgba(var(--c-secondary-rgb), 0.12);
+      transition: left 0.25s ease, right 0.25s ease;
+    }
+
+    #hud-energy-module.pos-left {
+      left: 3.1%;
+      right: auto;
+    }
+
+    #hud-energy-module.pos-right {
+      right: 3.1%;
+      left: auto;
+    }
+
+    /* 純黑或綠幕模式下背景全透明，避免去背產生色塊 */
+    #viewport-shell.bg-mode-black #hud-energy-module,
+    #viewport-shell.bg-mode-green #hud-energy-module {
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .energy-top-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5cqw;
+      margin-bottom: 0.48cqw;
+    }
+
+    .energy-title {
+      font-family: var(--font-zh);
+      font-size: 0.88cqw;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      color: rgba(255, 255, 255, 0.95);
+      text-shadow: 0 0 0.6cqw rgba(var(--c-secondary-rgb), 0.7), 0 1px 2px rgba(0, 0, 0, 0.9);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .energy-pct-wrap {
+      display: inline-flex;
+      align-items: baseline;
+      font-family: var(--font-orbitron);
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .energy-pct-num {
+      font-size: 1.75cqw;
+      font-weight: 900;
+      min-width: 3ch;
+      text-align: right;
+      color: var(--c-primary);
+      text-shadow: 0 0 0.8cqw rgba(var(--c-primary-rgb), 0.8), 0 1px 3px rgba(0, 0, 0, 0.9);
+    }
+
+    .energy-pct-sym {
+      font-size: 0.9cqw;
+      font-weight: 700;
+      margin-left: 0.15cqw;
+      color: var(--c-secondary);
+      text-shadow: 0 0 0.6cqw rgba(var(--c-secondary-rgb), 0.85);
+    }
+
+    /* 能量條外槽 */
+    .energy-bar-shell {
+      position: relative;
+      height: 1.15cqw;
+      padding: 0.16cqw;
+      border: 1px solid rgba(var(--c-primary-rgb), 0.6);
+      background: rgba(0, 0, 0, 0.55);
+      overflow: hidden;
+    }
+
+    #viewport-shell.bg-mode-black .energy-bar-shell,
+    #viewport-shell.bg-mode-green .energy-bar-shell {
+      background: transparent;
+    }
+
+    /* 未充能的微弱槽格 */
+    .energy-bar-slots {
+      position: absolute;
+      inset: 0.16cqw;
+      background-image: repeating-linear-gradient(
+        90deg,
+        rgba(var(--c-secondary-rgb), 0.16) 0%,
+        rgba(var(--c-secondary-rgb), 0.16) 4.2%,
+        transparent 4.2%,
+        transparent 5.5%
+      );
+    }
+
+    /* 實際充能的漸層發光條 */
+    .energy-bar-fill {
+      position: relative;
+      height: 100%;
+      width: 35%;
+      background: linear-gradient(90deg, var(--c-primary) 0%, var(--c-secondary) 100%);
+      box-shadow: 0 0 0.9cqw rgba(var(--c-secondary-rgb), 0.9), 0 0 0.5cqw rgba(var(--c-primary-rgb), 0.85);
+      overflow: hidden;
+      will-change: width;
+    }
+
+    /* 進度條內部分段遮罩（使用透明線條或純黑切格，兼顧綠幕與黑底） */
+    .energy-bar-grid {
+      position: absolute;
+      inset: 0.16cqw;
+      pointer-events: none;
+      z-index: 3;
+      background-image: repeating-linear-gradient(
+        90deg,
+        transparent 0%,
+        transparent 4.2%,
+        rgba(0, 0, 0, 0.78) 4.2%,
+        rgba(0, 0, 0, 0.78) 5.5%
+      );
+    }
+
+    #viewport-shell.bg-mode-green .energy-bar-grid {
+      background-image: repeating-linear-gradient(
+        90deg,
+        transparent 0%,
+        transparent 4.2%,
+        rgba(0, 255, 0, 0.85) 4.2%,
+        rgba(0, 255, 0, 0.85) 5.5%
+      );
+    }
+
+    /* 光束掃過特效 */
+    .energy-scan-beam {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 35%;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.78) 50%,
+        rgba(255, 255, 255, 0) 100%
+      );
+      transform: skewX(-22deg);
+      animation: energySweep 1.85s linear infinite;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    #hud-energy-module.is-charging .energy-scan-beam,
+    #hud-energy-module.is-max .energy-scan-beam {
+      opacity: 1;
+    }
+
+    @keyframes energySweep {
+      0% { left: -45%; }
+      100% { left: 125%; }
+    }
+
+    /* 前端微弱脈衝亮線 */
+    .energy-leading-glow {
+      position: absolute;
+      top: 0.16cqw;
+      bottom: 0.16cqw;
+      width: 0.26cqw;
+      background: #FFFFFF;
+      box-shadow: 0 0 0.6cqw #FFFFFF, 0 0 1.2cqw var(--c-primary);
+      transform: translateX(-50%);
+      z-index: 4;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    #hud-energy-module.is-charging .energy-leading-glow {
+      opacity: 1;
+    }
+
+    /* 底部狀態列 */
+    .energy-bottom-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 0.42cqw;
+      font-family: var(--font-mono);
+      font-size: 0.68cqw;
+      letter-spacing: 0.12em;
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .energy-status-label {
+      font-family: var(--font-orbitron);
+      font-weight: 800;
+      color: var(--c-secondary);
+      text-shadow: 0 0 0.5cqw rgba(var(--c-secondary-rgb), 0.75);
+    }
+
+    /* 達到 100% 時的完成閃光與 MAX 樣式 */
+    #hud-energy-module.is-max {
+      border-color: var(--c-primary);
+    }
+
+    #hud-energy-module.is-max .energy-status-label {
+      color: var(--c-primary);
+      text-shadow: 0 0 0.8cqw rgba(var(--c-primary-rgb), 1), 0 0 1.4cqw rgba(var(--c-secondary-rgb), 0.9);
+    }
+
+    #hud-energy-module.max-burst {
+      animation: energyMaxBurst 0.9s ease-out;
+    }
+
+    @keyframes energyMaxBurst {
+      0% { filter: brightness(1); box-shadow: 0 0 0 rgba(var(--c-primary-rgb), 0); }
+      22% { filter: brightness(1.85); box-shadow: 0 0 2.2cqw rgba(var(--c-primary-rgb), 0.95); }
+      52% { filter: brightness(1.18); box-shadow: 0 0 1.1cqw rgba(var(--c-secondary-rgb), 0.75); }
+      76% { filter: brightness(1.55); box-shadow: 0 0 1.8cqw rgba(var(--c-primary-rgb), 0.9); }
+      100% { filter: brightness(1); box-shadow: 0 0 0.5cqw rgba(var(--c-secondary-rgb), 0.3); }
+    }
+
+    /* =========================================================================
+       9. 控制面板專用質感樣式（專業後期軟體風格）
+       ========================================================================= */
+    .nle-card {
+      background: rgba(17, 24, 39, 0.88);
+      border: 1px solid var(--ui-border);
+      border-radius: 12px;
+    }
+
+    .nle-input {
+      background: #080C14;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: #F8FAFC;
+      border-radius: 8px;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .nle-input:focus {
+      outline: none;
+      border-color: var(--c-secondary);
+      box-shadow: 0 0 0 2px rgba(var(--c-secondary-rgb), 0.22);
+    }
+
+    .btn-active-team-tiger {
+      background: linear-gradient(135deg, rgba(250, 204, 21, 0.2), rgba(16, 185, 129, 0.22)) !important;
+      border-color: #10B981 !important;
+      color: #FFFFFF !important;
+      box-shadow: 0 0 14px rgba(16, 185, 129, 0.22);
+    }
+
+    .btn-active-team-dragon {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(56, 189, 248, 0.22)) !important;
+      border-color: #38BDF8 !important;
+      color: #FFFFFF !important;
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.22);
+    }
+
+    .btn-seg-active {
+      background: rgba(var(--c-primary-rgb), 0.16) !important;
+      border-color: var(--c-primary) !important;
+      color: #FFFFFF !important;
+    }
+
+    /* 訊息提示 Toast（取代 alert） */
+    #toast-box {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    #toast-box.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#0B0F17] text-slate-100">
+
+  <!-- =========================================================================
+       頂部專業後期工具列
+       ========================================================================= -->
+  <header id="app-header" class="sticky top-0 z-30 border-b border-slate-800/80 bg-[#080C14]/95 px-4 py-3 backdrop-blur-md sm:px-6">
+    <div class="mx-auto flex max-w-[1680px] flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <span
+          class="inline-block h-3 w-3 rounded-full"
+          style="background: linear-gradient(135deg, var(--c-primary), var(--c-secondary)); box-shadow: 0 0 10px var(--c-secondary);"
+        ></span>
+        <div>
+          <h1 class="text-sm font-black tracking-wider text-white sm:text-base">
+            2026法金盛會・科技戰艦 HUD 畫面框與能量充能條產生器
+          </h1>
+          <p class="hidden text-[11px] tracking-wide text-slate-400 sm:block">
+            16:9 幕後花絮專屬合成視窗｜虎躍隊・龍騰隊零落差雙隊規格
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2.5">
+        <button
+          id="btn-header-upload"
+          type="button"
+          class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-bold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
+        >
+          ＋ 匯入影片 / 圖片
+        </button>
+        <button
+          id="btn-header-record"
+          type="button"
+          class="flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-black tracking-wider text-slate-950 shadow-lg transition hover:brightness-110 active:scale-[0.98]"
+          style="background: linear-gradient(90deg, var(--c-primary), var(--c-secondary));"
+        >
+          <span class="inline-block h-2 w-2 rounded-full bg-red-600 ring-2 ring-black/25"></span>
+          進入純淨錄製模式
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 隱藏檔案上傳 Input -->
+  <input id="file-input" type="file" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" class="hidden" />
+
+  <!-- =========================================================================
+       主工作區（左側 16:9 預覽畫布 + 右側後期控制面板）
+       ========================================================================= -->
+  <div id="main-workspace" class="mx-auto flex w-full max-w-[1680px] flex-1 flex-col gap-5 p-4 lg:flex-row lg:p-5">
+
+    <!-- 左側：16:9 畫布與媒體播放器控制列 -->
+    <section id="preview-column" class="flex min-w-0 flex-1 flex-col justify-center gap-3">
+
+      <!-- 畫布頂部微資訊列 -->
+      <div id="stage-meta-bar" class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+        <div class="flex items-center gap-2">
+          <span class="rounded bg-slate-800/90 px-2 py-0.5 font-mono text-[11px] font-bold text-slate-200">16:9 VIEWPORT</span>
+          <span id="meta-mode-badge" class="rounded border border-slate-700/80 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">模式：媒體預覽</span>
+          <span id="meta-file-name" class="max-w-[240px] truncate text-[11px] text-slate-400">尚未匯入素材（可拖曳至畫面中）</span>
+        </div>
+        <div class="hidden items-center gap-3 font-mono text-[11px] text-slate-400 sm:flex">
+          <span><kbd class="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-slate-200">Space</kbd> 同步播放/充能</span>
+          <span><kbd class="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-slate-200">R</kbd> 重置</span>
+        </div>
+      </div>
+
+      <!-- 精準 16:9 影片與 HUD 畫布 -->
+      <div id="viewport-shell" class="cinematic-on rounded-xl">
+
+        <!-- Layer 1: 本地影片 / 圖片播放層 -->
+        <div id="media-layer">
+          <video id="preview-video" playsinline class="object-cover"></video>
+          <img id="preview-image" alt="匯入的花絮圖片" class="object-cover" />
+        </div>
+
+        <!-- Layer 1.5: 科技感預設佔位提示層 -->
+        <div id="placeholder-layer" title="點擊或拖曳影片／圖片到此處">
+          <div class="placeholder-badge">BATTLESHIP HUD // 16:9 MONITOR</div>
+          <div class="placeholder-title">拖曳或點擊此處匯入花絮素材</div>
+          <div class="placeholder-sub">支援 MP4 / MOV / WebM 影片與 JPG / PNG 圖片｜亦可直接切換純黑或綠幕去背錄製</div>
+        </div>
+
+        <!-- Layer 2: 電影感微調色濾鏡（微暗角 + 隊色邊緣微光） -->
+        <div id="cinematic-filter-layer"></div>
+
+        <!-- Layer 3: 極細掃描線層 -->
+        <div id="hud-scanlines"></div>
+
+        <!-- Layer 4: 戰艦幾何外框層（四角強化裝甲括號 + 極細對齊刻度 + 呼吸光點） -->
+        <div id="hud-frame-layer">
+          <svg class="hud-frame-svg" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="frameAccentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" style="stop-color: var(--c-primary); stop-opacity: 0.95;" />
+                <stop offset="50%" style="stop-color: var(--c-secondary); stop-opacity: 0.35;" />
+                <stop offset="100%" style="stop-color: var(--c-secondary); stop-opacity: 0.95;" />
+              </linearGradient>
+            </defs>
+
+            <!-- 極細內框安全線（不遮擋中央人物） -->
+            <polyline points="96,26 1504,26" fill="none" stroke="url(#frameAccentGrad)" stroke-width="1.2" opacity="0.48" />
+            <polyline points="96,874 1504,874" fill="none" stroke="url(#frameAccentGrad)" stroke-width="1.2" opacity="0.48" />
+            <polyline points="26,96 26,804" fill="none" stroke="var(--c-primary)" stroke-width="1.1" opacity="0.32" />
+            <polyline points="1574,96 1574,804" fill="none" stroke="var(--c-secondary)" stroke-width="1.1" opacity="0.32" />
+
+            <!-- 四角強化裝甲括號（高對比俐落切角） -->
+            <!-- 左上裝甲角 -->
+            <path d="M 26 98 L 26 42 L 42 26 L 116 26" fill="none" stroke="var(--c-primary)" stroke-width="3.2" stroke-linecap="square" />
+            <path d="M 38 78 L 38 48 L 48 38 L 88 38" fill="none" stroke="var(--c-secondary)" stroke-width="1.4" opacity="0.7" />
+            <!-- 右上裝甲角 -->
+            <path d="M 1484 26 L 1558 26 L 1574 42 L 1574 98" fill="none" stroke="var(--c-secondary)" stroke-width="3.2" stroke-linecap="square" />
+            <path d="M 1512 38 L 1552 38 L 1562 48 L 1562 78" fill="none" stroke="var(--c-primary)" stroke-width="1.4" opacity="0.7" />
+            <!-- 左下裝甲角 -->
+            <path d="M 26 802 L 26 858 L 42 874 L 116 874" fill="none" stroke="var(--c-primary)" stroke-width="3.2" stroke-linecap="square" />
+            <path d="M 38 822 L 38 852 L 48 862 L 88 862" fill="none" stroke="var(--c-secondary)" stroke-width="1.4" opacity="0.7" />
+            <!-- 右下裝甲角 -->
+            <path d="M 1484 874 L 1558 874 L 1574 858 L 1574 802" fill="none" stroke="var(--c-secondary)" stroke-width="3.2" stroke-linecap="square" />
+            <path d="M 1512 862 L 1552 862 L 1562 852 L 1562 822" fill="none" stroke="var(--c-primary)" stroke-width="1.4" opacity="0.7" />
+
+            <!-- 上下中央微對齊刻度線 -->
+            <line x1="760" y1="26" x2="840" y2="26" stroke="var(--c-primary)" stroke-width="2.5" />
+            <line x1="800" y1="18" x2="800" y2="33" stroke="var(--c-primary)" stroke-width="1.6" />
+            <line x1="760" y1="874" x2="840" y2="874" stroke="var(--c-secondary)" stroke-width="2.5" />
+            <line x1="800" y1="867" x2="800" y2="882" stroke="var(--c-secondary)" stroke-width="1.6" />
+
+            <!-- 左右中央微對齊刻度 -->
+            <line x1="18" y1="450" x2="34" y2="450" stroke="var(--c-primary)" stroke-width="1.8" opacity="0.8" />
+            <line x1="26" y1="420" x2="32" y2="420" stroke="var(--c-primary)" stroke-width="1.2" opacity="0.5" />
+            <line x1="26" y1="480" x2="32" y2="480" stroke="var(--c-primary)" stroke-width="1.2" opacity="0.5" />
+
+            <line x1="1566" y1="450" x2="1582" y2="450" stroke="var(--c-secondary)" stroke-width="1.8" opacity="0.8" />
+            <line x1="1568" y1="420" x2="1574" y2="420" stroke="var(--c-secondary)" stroke-width="1.2" opacity="0.5" />
+            <line x1="1568" y1="480" x2="1574" y2="480" stroke="var(--c-secondary)" stroke-width="1.2" opacity="0.5" />
+          </svg>
+
+          <!-- 四角呼吸光點 -->
+          <span class="corner-led led-tl"></span>
+          <span class="corner-led led-tr"></span>
+          <span class="corner-led led-bl"></span>
+          <span class="corner-led led-br"></span>
+        </div>
+
+        <!-- Layer 5: 左上角 REC + 機位標籤 + 等寬時間碼 -->
+        <div id="hud-top-left">
+          <div class="rec-row">
+            <span class="rec-pill">
+              <span class="rec-dot"></span>
+              <span class="rec-text">REC</span>
+            </span>
+            <span class="cam-tag">
+              <span class="cam-tag-accent"></span>
+              <span id="hud-cam-text">CAM-01 // 虎躍隊</span>
+            </span>
+          </div>
+          <div id="hud-timecode" class="timecode-readout">00:00:00:00</div>
+        </div>
+
+        <!-- Layer 6: 右上角 活動名稱 + 階段標籤 -->
+        <div id="hud-top-right">
+          <div class="event-badge">
+            <span class="event-badge-bar"></span>
+            <span id="hud-event-text">2026法金盛會</span>
+          </div>
+          <div class="phase-tag-box">
+            <span id="hud-phase-text" class="phase-tag-text">PHASE 01 // 基礎特訓</span>
+          </div>
+        </div>
+
+        <!-- Layer 7: 內建科技戰艦 HUD 能量充能條（左下/右下可切，寬度 24.5%） -->
+        <div id="hud-energy-module" class="pos-left">
+          <div class="energy-top-row">
+            <div id="hud-energy-title" class="energy-title">能量充能 // ENERGY</div>
+            <div class="energy-pct-wrap">
+              <span id="hud-energy-pct" class="energy-pct-num">35</span>
+              <span class="energy-pct-sym">%</span>
+            </div>
+          </div>
+
+          <div class="energy-bar-shell">
+            <div class="energy-bar-slots"></div>
+            <div id="hud-energy-fill" class="energy-bar-fill" style="width: 35%;">
+              <div class="energy-scan-beam"></div>
+            </div>
+            <div class="energy-bar-grid"></div>
+            <div id="hud-energy-lead" class="energy-leading-glow" style="left: 35%;"></div>
+          </div>
+
+          <div class="energy-bottom-row">
+            <span id="hud-energy-range">35% → 60%</span>
+            <span id="hud-energy-status" class="energy-status-label">STANDBY</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 媒體播放控制列（僅在非錄製模式顯示） -->
+      <div id="transport-bar" class="nle-card flex flex-wrap items-center gap-3 px-4 py-2.5">
+        <div class="flex items-center gap-1.5">
+          <button
+            id="btn-play-pause"
+            type="button"
+            class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-xs font-bold text-white transition hover:border-slate-500 hover:bg-slate-800"
+            title="播放 / 暫停影片"
+          >
+            ▶
+          </button>
+          <button
+            id="btn-sync-restart"
+            type="button"
+            class="flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 text-xs font-bold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
+            title="同步從頭播放影片並觸發能量充能條 (Space)"
+          >
+            ↻ 同步從頭播放
+          </button>
+          <button
+            id="btn-mute-toggle"
+            type="button"
+            class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-xs text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
+            title="靜音 / 取消靜音"
+          >
+            🔊
+          </button>
+        </div>
+
+        <!-- 影片時間軸拉條 -->
+        <div class="flex min-w-[160px] flex-1 items-center gap-2.5">
+          <span id="video-time-cur" class="font-mono text-[11px] text-slate-400">00:00</span>
+          <input
+            id="video-scrubber"
+            type="range"
+            min="0"
+            max="100"
+            value="0"
+            step="0.1"
+            disabled
+            class="h-1.5 flex-1 cursor-pointer accent-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+          />
+          <span id="video-time-dur" class="font-mono text-[11px] text-slate-400">00:00</span>
+        </div>
+
+        <button
+          id="btn-clear-media"
+          type="button"
+          class="hidden rounded-lg border border-rose-500/35 bg-rose-950/30 px-2.5 py-1.5 text-[11px] font-bold text-rose-300 transition hover:bg-rose-950/60"
+        >
+          移除素材
+        </button>
+      </div>
+    </section>
+
+    <!-- =========================================================================
+         右側：專業影視後期控制面板
+         ========================================================================= -->
+    <aside id="control-sidebar" class="flex w-full shrink-0 flex-col gap-3.5 lg:w-[375px] xl:w-[400px] lg:max-h-[calc(100vh-92px)] lg:overflow-y-auto lg:pr-1">
+
+      <!-- 卡片 1：兩隊切換與底圖模式 -->
+      <div class="nle-card space-y-3.5 p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-black tracking-wider text-slate-300">01. 隊伍規格與底圖模式</h2>
+          <span class="font-mono text-[10px] text-slate-500">ZERO-GAP SYNC</span>
+        </div>
+
+        <!-- 兩隊一鍵切換 -->
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            id="btn-team-tiger"
+            type="button"
+            class="btn-active-team-tiger flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-xs font-black text-slate-200 transition"
+          >
+            <span class="h-2.5 w-2.5 rounded-full bg-gradient-to-tr from-[#FACC15] to-[#10B981] shadow-[0_0_8px_#10B981]"></span>
+            虎躍隊（黃 × 綠）
+          </button>
+          <button
+            id="btn-team-dragon"
+            type="button"
+            class="flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2.5 text-xs font-black text-slate-300 transition hover:border-sky-400/60 hover:text-white"
+          >
+            <span class="h-2.5 w-2.5 rounded-full bg-gradient-to-tr from-[#EF4444] to-[#38BDF8] shadow-[0_0_8px_#38BDF8]"></span>
+            龍騰隊（紅 × 藍）
+          </button>
+        </div>
+
+        <!-- 三種底圖模式切換 -->
+        <div>
+          <label class="mb-1.5 block text-[11px] font-bold text-slate-400">底圖與去背輸出模式</label>
+          <div class="grid grid-cols-3 gap-1.5">
+            <button type="button" data-bg="media" class="bg-mode-btn btn-seg-active rounded-lg border border-slate-700 bg-slate-900/70 py-2 text-[11px] font-bold text-slate-300 transition hover:border-slate-500">
+              媒體預覽
+            </button>
+            <button type="button" data-bg="black" class="bg-mode-btn rounded-lg border border-slate-700 bg-slate-900/70 py-2 text-[11px] font-bold text-slate-300 transition hover:border-slate-500">
+              純黑濾色
+            </button>
+            <button type="button" data-bg="green" class="bg-mode-btn rounded-lg border border-slate-700 bg-slate-900/70 py-2 text-[11px] font-bold text-slate-300 transition hover:border-slate-500">
+              綠幕去背
+            </button>
+          </div>
+        </div>
+
+        <!-- 素材縮放與電影感濾鏡 -->
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" id="btn-fit-cover" class="btn-seg-active rounded-lg border border-slate-700 bg-slate-900/70 py-1.5 text-[11px] font-bold text-slate-300 transition">
+            填滿裁切 (Cover)
+          </button>
+          <button type="button" id="btn-fit-contain" class="rounded-lg border border-slate-700 bg-slate-900/70 py-1.5 text-[11px] font-bold text-slate-300 transition">
+            完整顯示 (Contain)
+          </button>
+        </div>
+
+        <label class="flex cursor-pointer items-center justify-between rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+          <div>
+            <div class="text-xs font-bold text-slate-200">電影感微調色濾鏡</div>
+            <div class="text-[10px] text-slate-400">微暗角＋隊色邊緣微光（融入排練畫面）</div>
+          </div>
+          <input id="toggle-cinematic" type="checkbox" checked class="h-4 w-4 accent-emerald-400" />
+        </label>
+      </div>
+
+      <!-- 卡片 2：HUD 畫面框與文字設定 -->
+      <div class="nle-card space-y-3 p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-black tracking-wider text-slate-300">02. HUD 畫面框元件與標籤</h2>
+          <span class="font-mono text-[10px] text-slate-500">MODULAR HUD</span>
+        </div>
+
+        <!-- 獨立元件開關 -->
+        <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-200">
+          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5">
+            <input id="chk-frame" type="checkbox" checked class="accent-emerald-400" />
+            <span>戰艦幾何外框</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5">
+            <input id="chk-topleft" type="checkbox" checked class="accent-emerald-400" />
+            <span>左上 REC / 時間碼</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5">
+            <input id="chk-topright" type="checkbox" checked class="accent-emerald-400" />
+            <span>右上階段標籤</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5">
+            <input id="chk-energy" type="checkbox" checked class="accent-emerald-400" />
+            <span>能量充能條</span>
+          </label>
+          <label class="col-span-2 flex cursor-pointer items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-2.5 py-1.5">
+            <input id="chk-scanlines" type="checkbox" checked class="accent-emerald-400" />
+            <span>微掃描線（電影監看螢幕質感）</span>
+          </label>
+        </div>
+
+        <!-- 文字自訂輸入 -->
+        <div class="space-y-2.5 pt-1">
+          <div>
+            <label for="input-cam" class="mb-1 block text-[11px] font-bold text-slate-400">左上機位與隊伍標籤</label>
+            <input id="input-cam" type="text" value="CAM-01 // 虎躍隊" class="nle-input w-full px-3 py-1.5 text-xs font-bold" />
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label for="input-event" class="mb-1 block text-[11px] font-bold text-slate-400">右上活動名稱</label>
+              <input id="input-event" type="text" value="2026法金盛會" class="nle-input w-full px-2.5 py-1.5 text-xs font-bold" />
+            </div>
+            <div>
+              <label for="input-phase" class="mb-1 block text-[11px] font-bold text-slate-400">右上階段標籤</label>
+              <input id="input-phase" type="text" value="PHASE 01 // 基礎特訓" class="nle-input w-full px-2.5 py-1.5 text-xs font-bold" />
+            </div>
+          </div>
+
+          <!-- 快速階段標籤預設 -->
+          <div>
+            <span class="mb-1 block text-[10px] font-bold text-slate-500">快速切換階段標籤：</span>
+            <div class="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+              <button type="button" data-phase="PHASE 01 // 基礎特訓" class="phase-preset-btn btn-seg-active rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1.5 text-[10px] font-bold text-slate-300 transition hover:border-slate-500">
+                PHASE 01 基礎特訓
+              </button>
+              <button type="button" data-phase="PHASE 02 // 汗水與默契" class="phase-preset-btn rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1.5 text-[10px] font-bold text-slate-300 transition hover:border-slate-500">
+                PHASE 02 汗水默契
+              </button>
+              <button type="button" data-phase="ENERGY 100% // 全員就緒" class="phase-preset-btn rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1.5 text-[10px] font-bold text-slate-300 transition hover:border-slate-500">
+                ENERGY 100% 就緒
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 卡片 3：內建能量充能條參數 -->
+      <div class="nle-card space-y-3 p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-black tracking-wider text-slate-300">03. 能量充能條設定</h2>
+          <div class="flex gap-1">
+            <button type="button" id="btn-pos-left" class="btn-seg-active rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-slate-300">左下角</button>
+            <button type="button" id="btn-pos-right" class="rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-slate-300">右下角</button>
+          </div>
+        </div>
+
+        <div>
+          <label for="input-energy-title" class="mb-1 block text-[11px] font-bold text-slate-400">能量條雙語標題</label>
+          <input id="input-energy-title" type="text" value="能量充能 // ENERGY" class="nle-input w-full px-3 py-1.5 text-xs font-bold" />
+        </div>
+
+        <!-- 快捷充能段落按鈕 -->
+        <div class="grid grid-cols-3 gap-1.5">
+          <button type="button" data-from="0" data-to="35" class="energy-preset-btn rounded-lg border border-slate-700 bg-slate-900/70 py-1.5 font-mono text-[11px] font-bold text-slate-300 transition hover:border-slate-500">
+            0% → 35%
+          </button>
+          <button type="button" data-from="35" data-to="60" class="energy-preset-btn btn-seg-active rounded-lg border border-slate-700 bg-slate-900/70 py-1.5 font-mono text-[11px] font-bold text-slate-300 transition hover:border-slate-500">
+            35% → 60%
+          </button>
+          <button type="button" data-from="60" data-to="100" class="energy-preset-btn rounded-lg border border-slate-700 bg-slate-900/70 py-1.5 font-mono text-[11px] font-bold text-slate-300 transition hover:border-slate-500">
+            60% → 100%
+          </button>
+        </div>
+
+        <!-- 數值與秒數設定 -->
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label for="input-start-pct" class="mb-1 block text-[10px] font-bold text-slate-400">起始百分比 (0-100%)</label>
+            <input id="input-start-pct" type="number" min="0" max="100" value="35" class="nle-input w-full px-2.5 py-1.5 font-mono text-xs font-bold" />
+          </div>
+          <div>
+            <label for="input-end-pct" class="mb-1 block text-[10px] font-bold text-slate-400">目標百分比 (0-100%)</label>
+            <input id="input-end-pct" type="number" min="0" max="100" value="60" class="nle-input w-full px-2.5 py-1.5 font-mono text-xs font-bold" />
+          </div>
+          <div>
+            <label for="input-duration" class="mb-1 block text-[10px] font-bold text-slate-400">充能秒數 (1-15秒)</label>
+            <input id="input-duration" type="number" min="1" max="15" step="0.5" value="5" class="nle-input w-full px-2.5 py-1.5 font-mono text-xs font-bold" />
+          </div>
+          <div>
+            <label for="input-delay" class="mb-1 block text-[10px] font-bold text-slate-400">啟動延遲 (0-5秒)</label>
+            <input id="input-delay" type="number" min="0" max="5" step="0.5" value="1" class="nle-input w-full px-2.5 py-1.5 font-mono text-xs font-bold" />
+          </div>
+        </div>
+
+        <!-- 測試與重置按鈕 -->
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button
+            id="btn-trigger-energy"
+            type="button"
+            class="rounded-lg border border-slate-600 bg-slate-800 py-2 text-xs font-bold text-white transition hover:bg-slate-700"
+          >
+            ▶ 測試充能動畫
+          </button>
+          <button
+            id="btn-reset-all"
+            type="button"
+            class="rounded-lg border border-slate-700 bg-slate-900 py-2 text-xs font-bold text-slate-300 transition hover:border-slate-500 hover:text-white"
+          >
+            ↺ 重置 (R)
+          </button>
+        </div>
+      </div>
+
+      <!-- 卡片 4：純淨錄製模式啟動與快捷鍵說明 -->
+      <div class="nle-card space-y-2.5 p-4">
+        <button
+          id="btn-enter-record"
+          type="button"
+          class="flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-black tracking-wider text-slate-950 shadow-lg transition hover:brightness-110 active:scale-[0.98]"
+          style="background: linear-gradient(90deg, var(--c-primary), var(--c-secondary));"
+        >
+          <span class="inline-block h-2.5 w-2.5 rounded-full bg-red-600 ring-2 ring-black/25"></span>
+          進入純淨錄製模式
+        </button>
+        <div class="space-y-1 text-[11px] leading-relaxed text-slate-400">
+          <div><kbd class="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] text-slate-200">Space</kbd> 同步從頭播放影片＋觸發能量條＋時間碼</div>
+          <div><kbd class="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] text-slate-200">R</kbd> 重置能量條回起始值與影片回開頭</div>
+          <div><kbd class="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] text-slate-200">ESC</kbd> 或 <strong class="text-slate-200">雙擊畫面</strong> 退出純淨錄製模式</div>
+        </div>
+      </div>
+
+    </aside>
+  </div>
+
+  <!-- 輕量非阻斷式訊息提示（取代 alert） -->
+  <div id="toast-box" class="rounded-lg border border-slate-700 bg-slate-900/95 px-4 py-2 text-xs font-bold text-white shadow-2xl">
+    <span id="toast-text"></span>
+  </div>
+
+  <script>
+    /**
+     * 2026法金盛會・科技戰艦 HUD 畫面框與能量充能條產生器
+     * 整合 16:9 媒體播放、去背底圖切換、時間碼引擎、能量充能條動畫與純淨全螢幕錄製模式。
+     */
+    (function () {
+      // =========================================================================
+      // 1. 狀態定義
+      // =========================================================================
+      const state = {
+        team: 'tiger',                // 'tiger' | 'dragon'
+        bgMode: 'media',              // 'media' | 'black' | 'green'
+        mediaType: null,              // null | 'video' | 'image'
+        mediaUrl: null,
+        fitMode: 'cover',             // 'cover' | 'contain'
+        energyPos: 'left',            // 'left' | 'right'
+        startPct: 35,
+        endPct: 60,
+        durationSec: 5,
+        delaySec: 1,
+        isRecordingMode: false,
+        customCamEdited: false
+      };
+
+      // 動畫與時間碼計時控制
+      let energyRafId = null;
+      let energyDelayTimer = null;
+      let tcRafId = null;
+      let tcStartTimestamp = null;
+      let tcRunning = false;
+      let toastTimer = null;
+
+      // =========================================================================
+      // 2. DOM 元素參照
+      // =========================================================================
+      const bodyEl = document.body;
+      const viewportEl = document.getElementById('viewport-shell');
+      const fileInputEl = document.getElementById('file-input');
+      const placeholderEl = document.getElementById('placeholder-layer');
+      const videoEl = document.getElementById('preview-video');
+      const imageEl = document.getElementById('preview-image');
+
+      // HUD 顯示層
+      const hudFrameEl = document.getElementById('hud-frame-layer');
+      const hudTopLeftEl = document.getElementById('hud-top-left');
+      const hudTopRightEl = document.getElementById('hud-top-right');
+      const hudScanlinesEl = document.getElementById('hud-scanlines');
+      const hudEnergyEl = document.getElementById('hud-energy-module');
+
+      const hudCamTextEl = document.getElementById('hud-cam-text');
+      const hudTimecodeEl = document.getElementById('hud-timecode');
+      const hudEventTextEl = document.getElementById('hud-event-text');
+      const hudPhaseTextEl = document.getElementById('hud-phase-text');
+      const hudEnergyTitleEl = document.getElementById('hud-energy-title');
+      const hudEnergyPctEl = document.getElementById('hud-energy-pct');
+      const hudEnergyFillEl = document.getElementById('hud-energy-fill');
+      const hudEnergyLeadEl = document.getElementById('hud-energy-lead');
+      const hudEnergyRangeEl = document.getElementById('hud-energy-range');
+      const hudEnergyStatusEl = document.getElementById('hud-energy-status');
+
+      // 資訊與播放器列
+      const metaModeBadge = document.getElementById('meta-mode-badge');
+      const metaFileName = document.getElementById('meta-file-name');
+      const btnPlayPause = document.getElementById('btn-play-pause');
+      const btnSyncRestart = document.getElementById('btn-sync-restart');
+      const btnMuteToggle = document.getElementById('btn-mute-toggle');
+      const btnClearMedia = document.getElementById('btn-clear-media');
+      const videoScrubber = document.getElementById('video-scrubber');
+      const videoTimeCur = document.getElementById('video-time-cur');
+      const videoTimeDur = document.getElementById('video-time-dur');
+
+      // 控制面板元素
+      const btnTeamTiger = document.getElementById('btn-team-tiger');
+      const btnTeamDragon = document.getElementById('btn-team-dragon');
+      const bgModeButtons = document.querySelectorAll('.bg-mode-btn');
+      const btnFitCover = document.getElementById('btn-fit-cover');
+      const btnFitContain = document.getElementById('btn-fit-contain');
+      const toggleCinematic = document.getElementById('toggle-cinematic');
+
+      const chkFrame = document.getElementById('chk-frame');
+      const chkTopLeft = document.getElementById('chk-topleft');
+      const chkTopRight = document.getElementById('chk-topright');
+      const chkEnergy = document.getElementById('chk-energy');
+      const chkScanlines = document.getElementById('chk-scanlines');
+
+      const inputCam = document.getElementById('input-cam');
+      const inputEvent = document.getElementById('input-event');
+      const inputPhase = document.getElementById('input-phase');
+      const phasePresetButtons = document.querySelectorAll('.phase-preset-btn');
+
+      const btnPosLeft = document.getElementById('btn-pos-left');
+      const btnPosRight = document.getElementById('btn-pos-right');
+      const inputEnergyTitle = document.getElementById('input-energy-title');
+      const energyPresetButtons = document.querySelectorAll('.energy-preset-btn');
+      const inputStartPct = document.getElementById('input-start-pct');
+      const inputEndPct = document.getElementById('input-end-pct');
+      const inputDuration = document.getElementById('input-duration');
+      const inputDelay = document.getElementById('input-delay');
+
+      const btnTriggerEnergy = document.getElementById('btn-trigger-energy');
+      const btnResetAll = document.getElementById('btn-reset-all');
+      const btnEnterRecord = document.getElementById('btn-enter-record');
+      const btnHeaderRecord = document.getElementById('btn-header-record');
+      const btnHeaderUpload = document.getElementById('btn-header-upload');
+
+      const toastBox = document.getElementById('toast-box');
+      const toastText = document.getElementById('toast-text');
+
+      // =========================================================================
+      // 3. 工具函式
+      // =========================================================================
+      function clamp(val, min, max) {
+        const n = Number(val);
+        if (Number.isNaN(n)) return min;
+        return Math.min(max, Math.max(min, n));
+      }
+
+      function showToast(msg) {
+        toastText.textContent = msg;
+        toastBox.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          toastBox.classList.remove('show');
+        }, 2600);
+      }
+
+      /** 將秒數格式化為 30fps 廣播級時間碼 HH:MM:SS:FF */
+      function formatTimecode(totalSeconds) {
+        const safeSec = Math.max(0, totalSeconds);
+        const hrs = Math.floor(safeSec / 3600);
+        const mins = Math.floor((safeSec % 3600) / 60);
+        const secs = Math.floor(safeSec % 60);
+        const frames = Math.floor((safeSec - Math.floor(safeSec)) * 30);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(hrs)}:${pad(mins)}:${pad(secs)}:${pad(frames)}`;
+      }
+
+      function formatShortTime(sec) {
+        if (!Number.isFinite(sec)) return '00:00';
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+
+      // =========================================================================
+      // 4. 時間碼引擎（有影片時同步影片秒數，無影片時獨立計時）
+      // =========================================================================
+      function startTimecodeClock(resetToZero = false) {
+        if (resetToZero) {
+          tcStartTimestamp = performance.now();
+          hudTimecodeEl.textContent = '00:00:00:00';
+        } else if (tcStartTimestamp === null) {
+          tcStartTimestamp = performance.now();
+        }
+        tcRunning = true;
+
+        if (tcRafId === null) {
+          const tick = (now) => {
+            if (!tcRunning) {
+              tcRafId = null;
+              return;
+            }
+            if (state.mediaType === 'video' && state.bgMode === 'media') {
+              hudTimecodeEl.textContent = formatTimecode(videoEl.currentTime || 0);
+            } else {
+              const elapsedSec = (now - tcStartTimestamp) / 1000;
+              hudTimecodeEl.textContent = formatTimecode(elapsedSec);
+            }
+            tcRafId = requestAnimationFrame(tick);
+          };
+          tcRafId = requestAnimationFrame(tick);
+        }
+      }
+
+      function resetTimecodeClock() {
+        tcRunning = false;
+        if (tcRafId !== null) {
+          cancelAnimationFrame(tcRafId);
+          tcRafId = null;
+        }
+        tcStartTimestamp = null;
+        hudTimecodeEl.textContent = '00:00:00:00';
+      }
+
+      // =========================================================================
+      // 5. 能量充能條動畫引擎
+      // =========================================================================
+      function renderEnergyVisual(pct, phase) {
+        const safe = clamp(pct, 0, 100);
+        const rounded = Math.round(safe);
+
+        hudEnergyPctEl.textContent = String(rounded);
+        hudEnergyFillEl.style.width = `${safe.toFixed(2)}%`;
+        hudEnergyLeadEl.style.left = `${safe.toFixed(2)}%`;
+        hudEnergyRangeEl.textContent = `${Math.round(state.startPct)}% → ${Math.round(state.endPct)}%`;
+
+        hudEnergyEl.classList.remove('is-charging', 'is-max');
+
+        if (phase === 'charging') {
+          hudEnergyEl.classList.add('is-charging');
+          hudEnergyStatusEl.textContent = 'CHARGING...';
+        } else if (phase === 'standby') {
+          hudEnergyStatusEl.textContent = 'STANDBY';
+        } else {
+          if (rounded >= 100) {
+            hudEnergyEl.classList.add('is-max');
+            hudEnergyStatusEl.textContent = 'MAX // FULL POWER';
+          } else {
+            hudEnergyStatusEl.textContent = 'LOCKED // READY';
+          }
+        }
+      }
+
+      function stopEnergyAnimation() {
+        if (energyRafId !== null) {
+          cancelAnimationFrame(energyRafId);
+          energyRafId = null;
+        }
+        if (energyDelayTimer !== null) {
+          clearTimeout(energyDelayTimer);
+          energyDelayTimer = null;
+        }
+      }
+
+      /** 平滑科技緩動曲線 */
+      function easeInOutCubic(t) {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      }
+
+      function triggerEnergyAnimation() {
+        stopEnergyAnimation();
+        hudEnergyEl.classList.remove('max-burst');
+
+        const from = clamp(state.startPct, 0, 100);
+        const to = clamp(state.endPct, 0, 100);
+        const durationMs = clamp(state.durationSec, 1, 15) * 1000;
+        const delayMs = clamp(state.delaySec, 0, 5) * 1000;
+
+        renderEnergyVisual(from, 'standby');
+
+        energyDelayTimer = setTimeout(() => {
+          const startTime = performance.now();
+
+          function step(now) {
+            const elapsed = now - startTime;
+            const rawT = clamp(elapsed / durationMs, 0, 1);
+            const easedT = easeInOutCubic(rawT);
+            const curPct = from + (to - from) * easedT;
+
+            if (rawT < 1) {
+              renderEnergyVisual(curPct, 'charging');
+              energyRafId = requestAnimationFrame(step);
+            } else {
+              renderEnergyVisual(to, 'complete');
+              if (Math.round(to) >= 100) {
+                hudEnergyEl.classList.remove('max-burst');
+                void hudEnergyEl.offsetWidth;
+                hudEnergyEl.classList.add('max-burst');
+              }
+              energyRafId = null;
+            }
+          }
+
+          energyRafId = requestAnimationFrame(step);
+        }, delayMs);
+      }
+
+      // =========================================================================
+      // 6. 同步播放與重置（Space / R 核心流程）
+      // =========================================================================
+      function syncPlayFromStart() {
+        if (state.mediaType === 'video') {
+          try {
+            videoEl.currentTime = 0;
+            const playPromise = videoEl.play();
+            if (playPromise && typeof playPromise.catch === 'function') {
+              playPromise.catch(() => {
+                // 若瀏覽器阻擋自動有聲播放，自動靜音再播放以確保流程順暢
+                videoEl.muted = true;
+                btnMuteToggle.textContent = '🔇';
+                videoEl.play().catch(() => {});
+              });
+            }
+            btnPlayPause.textContent = '⏸';
+          } catch (err) {
+            console.error(err);
+          }
+        }
+        startTimecodeClock(true);
+        triggerEnergyAnimation();
+      }
+
+      function resetAllToStart() {
+        stopEnergyAnimation();
+        hudEnergyEl.classList.remove('max-burst');
+        renderEnergyVisual(state.startPct, 'standby');
+
+        if (state.mediaType === 'video') {
+          videoEl.pause();
+          videoEl.currentTime = 0;
+          btnPlayPause.textContent = '▶';
+          videoScrubber.value = 0;
+          videoTimeCur.textContent = '00:00';
+        }
+        resetTimecodeClock();
+      }
+
+      // =========================================================================
+      // 7. 媒體匯入處理（支援拖曳與點擊上傳）
+      // =========================================================================
+      function clearMedia() {
+        if (state.mediaUrl) {
+          URL.revokeObjectURL(state.mediaUrl);
+          state.mediaUrl = null;
+        }
+        state.mediaType = null;
+        videoEl.pause();
+        videoEl.removeAttribute('src');
+        videoEl.load();
+        videoEl.style.display = 'none';
+        imageEl.removeAttribute('src');
+        imageEl.style.display = 'none';
+        placeholderEl.style.display = 'flex';
+        btnClearMedia.classList.add('hidden');
+        videoScrubber.disabled = true;
+        videoScrubber.value = 0;
+        videoTimeCur.textContent = '00:00';
+        videoTimeDur.textContent = '00:00';
+        btnPlayPause.textContent = '▶';
+        metaFileName.textContent = '尚未匯入素材（可拖曳至畫面中）';
+      }
+
+      function handleFileUpload(file) {
+        if (!file) return;
+        const isVideo = file.type.startsWith('video/');
+        const isImage = file.type.startsWith('image/');
+
+        if (!isVideo && !isImage) {
+          showToast('不支援的檔案格式，請匯入 MP4 / MOV / WebM 影片或 JPG / PNG 圖片');
+          return;
+        }
+
+        clearMedia();
+
+        const objectUrl = URL.createObjectURL(file);
+        state.mediaUrl = objectUrl;
+        metaFileName.textContent = `已匯入：${file.name}`;
+        btnClearMedia.classList.remove('hidden');
+        placeholderEl.style.display = 'none';
+
+        // 若目前在純黑或綠幕模式，匯入素材時自動切回「媒體預覽」方便檢視
+        if (state.bgMode !== 'media') {
+          setBgMode('media');
+        }
+
+        if (isVideo) {
+          state.mediaType = 'video';
+          videoEl.src = objectUrl;
+          videoEl.style.display = 'block';
+          videoScrubber.disabled = false;
+          showToast(`已載入影片：${file.name}（按 Space 同步播放與充能）`);
+        } else {
+          state.mediaType = 'image';
+          imageEl.src = objectUrl;
+          imageEl.style.display = 'block';
+          showToast(`已載入圖片：${file.name}`);
+        }
+      }
+
+      // =========================================================================
+      // 8. 隊伍、底圖模式與介面同步
+      // =========================================================================
+      function setTeam(team) {
+        state.team = team;
+        if (team === 'tiger') {
+          bodyEl.classList.remove('theme-dragon');
+          btnTeamTiger.classList.add('btn-active-team-tiger');
+          btnTeamDragon.classList.remove('btn-active-team-dragon');
+          if (!state.customCamEdited) {
+            inputCam.value = 'CAM-01 // 虎躍隊';
+            hudCamTextEl.textContent = inputCam.value;
+          }
+        } else {
+          bodyEl.classList.add('theme-dragon');
+          btnTeamDragon.classList.add('btn-active-team-dragon');
+          btnTeamTiger.classList.remove('btn-active-team-tiger');
+          if (!state.customCamEdited) {
+            inputCam.value = 'CAM-02 // 龍騰隊';
+            hudCamTextEl.textContent = inputCam.value;
+          }
+        }
+        // 更新按鈕漸層色
+        const grad = 'linear-gradient(90deg, var(--c-primary), var(--c-secondary))';
+        btnEnterRecord.style.background = grad;
+        btnHeaderRecord.style.background = grad;
+      }
+
+      function setBgMode(mode) {
+        state.bgMode = mode;
+        viewportEl.classList.remove('bg-mode-black', 'bg-mode-green');
+        bgModeButtons.forEach((btn) => {
+          btn.classList.toggle('btn-seg-active', btn.dataset.bg === mode);
+        });
+
+        if (mode === 'black') {
+          viewportEl.classList.add('bg-mode-black');
+          metaModeBadge.textContent = '模式：純黑去背 (#000000 濾色用)';
+        } else if (mode === 'green') {
+          viewportEl.classList.add('bg-mode-green');
+          metaModeBadge.textContent = '模式：綠幕去背 (#00FF00)';
+        } else {
+          metaModeBadge.textContent = '模式：媒體預覽';
+        }
+      }
+
+      function setFitMode(fit) {
+        state.fitMode = fit;
+        const isCover = fit === 'cover';
+        videoEl.classList.toggle('object-cover', isCover);
+        videoEl.classList.toggle('object-contain', !isCover);
+        imageEl.classList.toggle('object-cover', isCover);
+        imageEl.classList.toggle('object-contain', !isCover);
+        btnFitCover.classList.toggle('btn-seg-active', isCover);
+        btnFitContain.classList.toggle('btn-seg-active', !isCover);
+      }
+
+      function setEnergyPosition(pos) {
+        state.energyPos = pos;
+        hudEnergyEl.classList.toggle('pos-left', pos === 'left');
+        hudEnergyEl.classList.toggle('pos-right', pos === 'right');
+        btnPosLeft.classList.toggle('btn-seg-active', pos === 'left');
+        btnPosRight.classList.toggle('btn-seg-active', pos === 'right');
+      }
+
+      // =========================================================================
+      // 9. 純淨全螢幕錄製模式切換
+      // =========================================================================
+      function enterRecordingMode() {
+        state.isRecordingMode = true;
+        bodyEl.classList.add('recording-mode');
+        // 嘗試請求瀏覽器原生全螢幕（若處於 iframe 限制則安全略過，仍維持滿版純黑錄製）
+        try {
+          if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          }
+        } catch (err) {
+          // 略過 iframe 權限錯誤
+        }
+        resetAllToStart();
+      }
+
+      function exitRecordingMode() {
+        if (!state.isRecordingMode) return;
+        state.isRecordingMode = false;
+        bodyEl.classList.remove('recording-mode');
+        try {
+          if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          }
+        } catch (err) {
+          // 略過
+        }
+      }
+
+      document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && state.isRecordingMode) {
+          state.isRecordingMode = false;
+          bodyEl.classList.remove('recording-mode');
+        }
+      });
+
+      // =========================================================================
+      // 10. 事件監聽綁定
+      // =========================================================================
+
+      // 隊伍切換
+      btnTeamTiger.addEventListener('click', () => setTeam('tiger'));
+      btnTeamDragon.addEventListener('click', () => setTeam('dragon'));
+
+      // 底圖模式
+      bgModeButtons.forEach((btn) => {
+        btn.addEventListener('click', () => setBgMode(btn.dataset.bg));
+      });
+
+      // 縮放裁切
+      btnFitCover.addEventListener('click', () => setFitMode('cover'));
+      btnFitContain.addEventListener('click', () => setFitMode('contain'));
+
+      // 電影感微調色濾鏡
+      toggleCinematic.addEventListener('change', () => {
+        viewportEl.classList.toggle('cinematic-on', toggleCinematic.checked);
+      });
+
+      // HUD 元件獨立開關
+      chkFrame.addEventListener('change', () => {
+        hudFrameEl.style.display = chkFrame.checked ? 'block' : 'none';
+      });
+      chkTopLeft.addEventListener('change', () => {
+        hudTopLeftEl.style.display = chkTopLeft.checked ? 'flex' : 'none';
+      });
+      chkTopRight.addEventListener('change', () => {
+        hudTopRightEl.style.display = chkTopRight.checked ? 'flex' : 'none';
+      });
+      chkEnergy.addEventListener('change', () => {
+        hudEnergyEl.style.display = chkEnergy.checked ? 'block' : 'none';
+      });
+      chkScanlines.addEventListener('change', () => {
+        hudScanlinesEl.style.display = chkScanlines.checked ? 'block' : 'none';
+      });
+
+      // 文字即時更新
+      inputCam.addEventListener('input', () => {
+        state.customCamEdited = true;
+        hudCamTextEl.textContent = inputCam.value || 'CAM-01';
+      });
+      inputEvent.addEventListener('input', () => {
+        hudEventTextEl.textContent = inputEvent.value || '2026法金盛會';
+      });
+      inputPhase.addEventListener('input', () => {
+        hudPhaseTextEl.textContent = inputPhase.value || 'PHASE 01';
+        phasePresetButtons.forEach((b) => b.classList.remove('btn-seg-active'));
+      });
+      inputEnergyTitle.addEventListener('input', () => {
+        hudEnergyTitleEl.textContent = inputEnergyTitle.value || '能量充能 // ENERGY';
+      });
+
+      // 快速階段預設
+      phasePresetButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          phasePresetButtons.forEach((b) => b.classList.remove('btn-seg-active'));
+          btn.classList.add('btn-seg-active');
+          inputPhase.value = btn.dataset.phase;
+          hudPhaseTextEl.textContent = btn.dataset.phase;
+        });
+      });
+
+      // 能量條位置切換
+      btnPosLeft.addEventListener('click', () => setEnergyPosition('left'));
+      btnPosRight.addEventListener('click', () => setEnergyPosition('right'));
+
+      // 能量條快捷預設
+      energyPresetButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          energyPresetButtons.forEach((b) => b.classList.remove('btn-seg-active'));
+          btn.classList.add('btn-seg-active');
+          state.startPct = Number(btn.dataset.from);
+          state.endPct = Number(btn.dataset.to);
+          inputStartPct.value = state.startPct;
+          inputEndPct.value = state.endPct;
+          triggerEnergyAnimation();
+        });
+      });
+
+      // 能量條數值輸入
+      function syncEnergyNumericInputs() {
+        state.startPct = clamp(inputStartPct.value, 0, 100);
+        state.endPct = clamp(inputEndPct.value, 0, 100);
+        state.durationSec = clamp(inputDuration.value, 1, 15);
+        state.delaySec = clamp(inputDelay.value, 0, 5);
+        energyPresetButtons.forEach((b) => b.classList.remove('btn-seg-active'));
+        renderEnergyVisual(state.startPct, 'standby');
+      }
+
+      inputStartPct.addEventListener('change', syncEnergyNumericInputs);
+      inputEndPct.addEventListener('change', syncEnergyNumericInputs);
+      inputDuration.addEventListener('change', syncEnergyNumericInputs);
+      inputDelay.addEventListener('change', syncEnergyNumericInputs);
+
+      // 測試與重置按鈕
+      btnTriggerEnergy.addEventListener('click', () => {
+        syncEnergyNumericInputs();
+        startTimecodeClock(false);
+        triggerEnergyAnimation();
+      });
+      btnResetAll.addEventListener('click', resetAllToStart);
+      btnSyncRestart.addEventListener('click', syncPlayFromStart);
+
+      // 錄製模式按鈕與雙擊退出
+      btnEnterRecord.addEventListener('click', enterRecordingMode);
+      btnHeaderRecord.addEventListener('click', enterRecordingMode);
+      viewportEl.addEventListener('dblclick', () => {
+        if (state.isRecordingMode) {
+          exitRecordingMode();
+        }
+      });
+
+      // 檔案上傳與拖曳匯入
+      btnHeaderUpload.addEventListener('click', () => fileInputEl.click());
+      placeholderEl.addEventListener('click', () => {
+        if (!state.isRecordingMode) fileInputEl.click();
+      });
+      fileInputEl.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          handleFileUpload(e.target.files[0]);
+          fileInputEl.value = '';
+        }
+      });
+      btnClearMedia.addEventListener('click', clearMedia);
+
+      viewportEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!state.isRecordingMode) viewportEl.classList.add('is-dragover');
+      });
+      viewportEl.addEventListener('dragleave', () => {
+        viewportEl.classList.remove('is-dragover');
+      });
+      viewportEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        viewportEl.classList.remove('is-dragover');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+          handleFileUpload(e.dataTransfer.files[0]);
+        }
+      });
+
+      // 影片播放器事件同步
+      btnPlayPause.addEventListener('click', () => {
+        if (state.mediaType !== 'video') {
+          syncPlayFromStart();
+          return;
+        }
+        if (videoEl.paused) {
+          videoEl.play().catch(() => {});
+          btnPlayPause.textContent = '⏸';
+          startTimecodeClock(false);
+        } else {
+          videoEl.pause();
+          btnPlayPause.textContent = '▶';
+          tcRunning = false;
+        }
+      });
+
+      btnMuteToggle.addEventListener('click', () => {
+        videoEl.muted = !videoEl.muted;
+        btnMuteToggle.textContent = videoEl.muted ? '🔇' : '🔊';
+      });
+
+      videoEl.addEventListener('loadedmetadata', () => {
+        videoTimeDur.textContent = formatShortTime(videoEl.duration);
+        videoScrubber.max = videoEl.duration || 100;
+        hudTimecodeEl.textContent = '00:00:00:00';
+      });
+
+      videoEl.addEventListener('timeupdate', () => {
+        if (!videoEl.duration) return;
+        videoScrubber.value = videoEl.currentTime;
+        videoTimeCur.textContent = formatShortTime(videoEl.currentTime);
+        hudTimecodeEl.textContent = formatTimecode(videoEl.currentTime);
+      });
+
+      videoEl.addEventListener('ended', () => {
+        btnPlayPause.textContent = '▶';
+        tcRunning = false;
+      });
+
+      videoScrubber.addEventListener('input', () => {
+        if (state.mediaType === 'video' && videoEl.duration) {
+          videoEl.currentTime = Number(videoScrubber.value);
+          hudTimecodeEl.textContent = formatTimecode(videoEl.currentTime);
+        }
+      });
+
+      // 全域快捷鍵（Space 同步播放與充能 / R 重置 / ESC 退出錄製模式）
+      window.addEventListener('keydown', (e) => {
+        const tag = document.activeElement?.tagName;
+        const isTyping = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+        if (e.key === 'Escape' && state.isRecordingMode) {
+          e.preventDefault();
+          exitRecordingMode();
+          return;
+        }
+
+        if (isTyping) return;
+
+        if (e.code === 'Space') {
+          e.preventDefault();
+          syncPlayFromStart();
+        } else if (e.key === 'r' || e.key === 'R') {
+          e.preventDefault();
+          resetAllToStart();
+        }
+      });
+
+      // =========================================================================
+      // 11. 初始啟動
+      // =========================================================================
+      setTeam('tiger');
+      setBgMode('media');
+      setFitMode('cover');
+      setEnergyPosition('left');
+      renderEnergyVisual(state.startPct, 'standby');
+      // 頁面載入後自動示範一次充能效果
+      setTimeout(() => {
+        startTimecodeClock(true);
+        triggerEnergyAnimation();
+      }, 450);
+    })();
+  </script>
+</body>
+</html>
